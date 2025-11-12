@@ -888,7 +888,7 @@
             }
         });
 
-        // Carregar agendamentos - VERSÃO CORRIGIDA
+        // Carregar agendamentos - VERSÃO CORRIGIDA COM VALIDAÇÃO DE DADOS
         function loadAgendamentos() {
             console.log('=== 📋 Iniciando loadAgendamentos ===');
             console.log('Firebase inicializado:', firebaseInitialized);
@@ -923,20 +923,32 @@
                     snapshot.forEach(doc => {
                         const data = doc.data();
                         console.log('📄 Documento:', doc.id, data);
-                        allAppointments.push({
-                            id: doc.id,
-                            ...data
-                        });
-                    });
-
-                    allAppointments.sort((a, b) => {
-                        if (a.data !== b.data) {
-                            return a.data.localeCompare(b.data);
+                        
+                        // Validar se os campos essenciais existem
+                        if (data.data && data.hora) {
+                            allAppointments.push({
+                                id: doc.id,
+                                ...data
+                            });
+                        } else {
+                            console.warn('⚠️ Agendamento com dados incompletos ignorado:', doc.id, data);
                         }
-                        return a.hora.localeCompare(b.hora);
                     });
 
-                    console.log('✅ Total de agendamentos processados:', allAppointments.length);
+                    // Ordenar com validação
+                    allAppointments.sort((a, b) => {
+                        const dataA = a.data || '';
+                        const dataB = b.data || '';
+                        const horaA = a.hora || '';
+                        const horaB = b.hora || '';
+                        
+                        if (dataA !== dataB) {
+                            return dataA.localeCompare(dataB);
+                        }
+                        return horaA.localeCompare(horaB);
+                    });
+
+                    console.log('✅ Total de agendamentos válidos processados:', allAppointments.length);
                     renderAgendamentos(allAppointments);
                     setupRealtimeListener();
                 })
@@ -944,6 +956,7 @@
                     console.error('❌ Erro na query:', error);
                     console.error('Código do erro:', error.code);
                     console.error('Mensagem:', error.message);
+                    console.error('Stack:', error.stack);
                     document.getElementById('agendamentos-list').innerHTML = `
                         <div class="message error">
                             ❌ Erro ao carregar agendamentos:<br>
@@ -954,7 +967,7 @@
                 });
         }
 
-        // Configurar listener em tempo real
+        // Configurar listener em tempo real - VERSÃO CORRIGIDA
         function setupRealtimeListener() {
             if (unsubscribeListener) {
                 unsubscribeListener();
@@ -970,17 +983,30 @@
                         
                         allAppointments = [];
                         snapshot.forEach(doc => {
-                            allAppointments.push({
-                                id: doc.id,
-                                ...doc.data()
-                            });
+                            const data = doc.data();
+                            
+                            // Validar dados antes de adicionar
+                            if (data.data && data.hora) {
+                                allAppointments.push({
+                                    id: doc.id,
+                                    ...data
+                                });
+                            } else {
+                                console.warn('⚠️ Agendamento com dados incompletos ignorado:', doc.id);
+                            }
                         });
 
+                        // Ordenar com validação
                         allAppointments.sort((a, b) => {
-                            if (a.data !== b.data) {
-                                return a.data.localeCompare(b.data);
+                            const dataA = a.data || '';
+                            const dataB = b.data || '';
+                            const horaA = a.hora || '';
+                            const horaB = b.hora || '';
+                            
+                            if (dataA !== dataB) {
+                                return dataA.localeCompare(dataB);
                             }
-                            return a.hora.localeCompare(b.hora);
+                            return horaA.localeCompare(horaB);
                         });
 
                         renderAgendamentos(allAppointments);
@@ -991,7 +1017,7 @@
                 );
         }
 
-        // Renderizar agendamentos
+        // Renderizar agendamentos - VERSÃO COM VALIDAÇÃO EXTRA
         function renderAgendamentos(agendamentos) {
             console.log('=== 🎨 Renderizando agendamentos ===');
             console.log('Quantidade:', agendamentos.length);
@@ -1012,10 +1038,12 @@
 
             const agendamentosPorDia = {};
             agendamentos.forEach(ag => {
-                if (!ag.data) {
-                    console.warn('⚠️ Agendamento sem data:', ag);
+                // Validar dados antes de agrupar
+                if (!ag.data || !ag.hora) {
+                    console.warn('⚠️ Agendamento sem data/hora ignorado na renderização:', ag);
                     return;
                 }
+                
                 if (!agendamentosPorDia[ag.data]) {
                     agendamentosPorDia[ag.data] = [];
                 }
@@ -1025,9 +1053,20 @@
             const datasOrdenadas = Object.keys(agendamentosPorDia).sort();
             console.log('📅 Datas encontradas:', datasOrdenadas);
 
+            if (datasOrdenadas.length === 0) {
+                listDiv.innerHTML = '<div class="loading">📭 Nenhum agendamento válido encontrado.</div>';
+                return;
+            }
+
             datasOrdenadas.forEach(data => {
                 const agendamentosDoDia = agendamentosPorDia[data];
-                agendamentosDoDia.sort((a, b) => (a.hora || '').localeCompare(b.hora || ''));
+                
+                // Ordenar por hora com validação
+                agendamentosDoDia.sort((a, b) => {
+                    const horaA = a.hora || '';
+                    const horaB = b.hora || '';
+                    return horaA.localeCompare(horaB);
+                });
 
                 const diaContainer = document.createElement('div');
                 diaContainer.classList.add('appointments-day');
@@ -1066,7 +1105,7 @@
             console.log('✅ Renderização concluída');
         }
 
-        // Filtrar agendamentos
+        // Filtrar agendamentos - VERSÃO COM VALIDAÇÃO
         function filterAgendamentos(query) {
             const normalizedQuery = query.toLowerCase().trim();
             if (normalizedQuery === '') {
@@ -1074,9 +1113,10 @@
                 return;
             }
 
-            const filtered = allAppointments.filter(ag => 
-                ag.cliente.toLowerCase().includes(normalizedQuery)
-            );
+            const filtered = allAppointments.filter(ag => {
+                const cliente = ag.cliente || '';
+                return cliente.toLowerCase().includes(normalizedQuery);
+            });
             renderAgendamentos(filtered);
         }
 
