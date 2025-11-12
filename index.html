@@ -656,6 +656,15 @@
         const TODAY_DATE = new Date();
         TODAY_DATE.setHours(0, 0, 0, 0);
 
+        // Função para obter data de hoje em formato YYYY-MM-DD
+        function getTodayString() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
         // Inicializar Firebase
         function initFirebase() {
             try {
@@ -888,7 +897,7 @@
             }
         });
 
-        // Carregar agendamentos - VERSÃO CORRIGIDA COM VALIDAÇÃO DE DADOS
+        // Carregar agendamentos - APENAS DE HOJE EM DIANTE
         function loadAgendamentos() {
             console.log('=== 📋 Iniciando loadAgendamentos ===');
             console.log('Firebase inicializado:', firebaseInitialized);
@@ -900,6 +909,9 @@
                 return;
             }
 
+            const todayString = getTodayString();
+            console.log('📅 Filtrando agendamentos a partir de:', todayString);
+
             document.getElementById('agendamentos-list').innerHTML = '<div class="loading">Carregando agendamentos...</div>';
             document.getElementById('search-input').value = '';
 
@@ -907,6 +919,7 @@
 
             db.collection('agendamentos')
                 .where('status', '==', 'agendado')
+                .where('data', '>=', todayString)
                 .get()
                 .then(snapshot => {
                     console.log('✅ Query executada com sucesso!');
@@ -967,16 +980,18 @@
                 });
         }
 
-        // Configurar listener em tempo real - VERSÃO CORRIGIDA
+        // Configurar listener em tempo real - APENAS DE HOJE EM DIANTE
         function setupRealtimeListener() {
             if (unsubscribeListener) {
                 unsubscribeListener();
             }
 
-            console.log('🔄 Configurando listener em tempo real...');
+            const todayString = getTodayString();
+            console.log('🔄 Configurando listener em tempo real (a partir de ' + todayString + ')...');
             
             unsubscribeListener = db.collection('agendamentos')
                 .where('status', '==', 'agendado')
+                .where('data', '>=', todayString)
                 .onSnapshot(
                     snapshot => {
                         console.log('🔔 Atualização em tempo real recebida');
@@ -1017,7 +1032,7 @@
                 );
         }
 
-        // Renderizar agendamentos - VERSÃO COM VALIDAÇÃO EXTRA
+        // Renderizar agendamentos
         function renderAgendamentos(agendamentos) {
             console.log('=== 🎨 Renderizando agendamentos ===');
             console.log('Quantidade:', agendamentos.length);
@@ -1105,7 +1120,7 @@
             console.log('✅ Renderização concluída');
         }
 
-        // Filtrar agendamentos - VERSÃO COM VALIDAÇÃO
+        // Filtrar agendamentos
         function filterAgendamentos(query) {
             const normalizedQuery = query.toLowerCase().trim();
             if (normalizedQuery === '') {
@@ -1133,7 +1148,7 @@
                 showMessage('✅ Agendamento cancelado com sucesso!', 'success');
             } catch (error) {
                 console.error("❌ Erro ao cancelar:", error);
-                alert('Erro ao cancelar agendamento.');
+                alert('❌ Erro ao cancelar: ' + error.message);
             }
         }
 
