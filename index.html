@@ -642,6 +642,7 @@
         let editAppointmentId = null;
         let allAppointments = [];
         let firebaseInitialized = false;
+        let unsubscribeListener = null;
 
         const WORKING_HOURS = {
             start: '08:00',
@@ -651,7 +652,7 @@
 
         const MAX_APPOINTMENTS_PER_HOUR = 4;
         const MAX_APPOINTMENTS_SATURDAY = 6;
-        const HOLIDAYS = ['2025-12-25', '2025-01-01']; // Exemplos de feriados
+        const HOLIDAYS = ['2025-12-25', '2025-01-01'];
         const TODAY_DATE = new Date();
         TODAY_DATE.setHours(0, 0, 0, 0);
 
@@ -663,12 +664,11 @@
                 }
                 db = firebase.firestore();
                 firebaseInitialized = true;
-                console.log('Firebase inicializado com sucesso!');
+                console.log('✅ Firebase inicializado com sucesso!');
                 
-                // Agora que o Firebase está pronto, inicializar o calendário
                 generateDaySelector();
             } catch (error) {
-                console.error('Erro ao inicializar Firebase:', error);
+                console.error('❌ Erro ao inicializar Firebase:', error);
                 showMessage('❌ Erro ao conectar com o banco de dados. Recarregue a página.', 'error');
             }
         }
@@ -676,10 +676,12 @@
         // Mostrar mensagem
         function showMessage(message, type = 'success', targetElement = 'message-area') {
             const messageArea = document.getElementById(targetElement);
-            messageArea.innerHTML = `<div class="message ${type}">${message}</div>`;
-            setTimeout(() => {
-                messageArea.innerHTML = '';
-            }, 5000);
+            if (messageArea) {
+                messageArea.innerHTML = `<div class="message ${type}">${message}</div>`;
+                setTimeout(() => {
+                    messageArea.innerHTML = '';
+                }, 5000);
+            }
         }
 
         // Formatar data
@@ -690,6 +692,8 @@
 
         // Mostrar aba
         function showTab(tabName) {
+            console.log('🔄 Mudando para aba:', tabName);
+            
             document.querySelectorAll('[id$="-tab"]').forEach(tab => {
                 tab.classList.add('hidden');
             });
@@ -705,11 +709,18 @@
             }
             
             if (tabName === 'lista') {
-                loadAgendamentos();
+                console.log('📋 Carregando lista de agendamentos...');
+                setTimeout(() => {
+                    loadAgendamentos();
+                }, 100);
             } else if (tabName === 'novo') {
                 currentCalendarDate = new Date();
                 if (firebaseInitialized) {
                     generateDaySelector();
+                }
+                if (unsubscribeListener) {
+                    unsubscribeListener();
+                    unsubscribeListener = null;
                 }
             }
         }
@@ -734,7 +745,7 @@
         // Gerar seletor de dias
         function generateDaySelector() {
             if (!firebaseInitialized) {
-                console.log('Aguardando inicialização do Firebase...');
+                console.log('⏳ Aguardando inicialização do Firebase...');
                 return;
             }
 
@@ -742,7 +753,7 @@
             const currentMonthYearSpan = document.getElementById('currentMonthYear');
             
             if (!daySelector || !currentMonthYearSpan) {
-                console.error('Elementos do DOM não encontrados');
+                console.error('❌ Elementos do DOM não encontrados');
                 return;
             }
 
@@ -831,7 +842,7 @@
                     timeSlotsDiv.appendChild(slotElement);
                 }
             } catch (error) {
-                console.error("Erro ao carregar horários:", error);
+                console.error("❌ Erro ao carregar horários:", error);
                 timeSlotsDiv.innerHTML = `<div class="message error">Erro ao carregar horários</div>`;
             }
         }
@@ -872,54 +883,139 @@
                 generateDaySelector();
                 document.getElementById('timeSlots').innerHTML = '<div class="loading">Selecione um dia para ver os horários</div>';
             } catch (error) {
-                console.error("Erro ao agendar:", error);
+                console.error("❌ Erro ao agendar:", error);
                 showMessage(`❌ Erro ao agendar: ${error.message}`, 'error');
             }
         });
 
-        // Carregar agendamentos - CORRIGIDO: Removido orderBy para evitar erro de índice
+        // Carregar agendamentos - VERSÃO CORRIGIDA
         function loadAgendamentos() {
-            if (!firebaseInitialized) {
-                document.getElementById('agendamentos-list').innerHTML = '<div class="loading">Inicializando...</div>';
+            console.log('=== 📋 Iniciando loadAgendamentos ===');
+            console.log('Firebase inicializado:', firebaseInitialized);
+            console.log('DB disponível:', !!db);
+            
+            if (!firebaseInitialized || !db) {
+                console.error('❌ Firebase não está pronto!');
+                document.getElementById('agendamentos-list').innerHTML = '<div class="message error">❌ Erro: Sistema não inicializado. Recarregue a página.</div>';
                 return;
             }
 
             document.getElementById('agendamentos-list').innerHTML = '<div class="loading">Carregando agendamentos...</div>';
             document.getElementById('search-input').value = '';
 
+            console.log('🔍 Executando query no Firestore...');
+
             db.collection('agendamentos')
                 .where('status', '==', 'agendado')
-                .onSnapshot(snapshot => {
-                    // Ordenar no cliente após receber os dados
-                    allAppointments = snapshot.docs
-                        .map(doc => ({ ...doc.data(), id: doc.id }))
-                        .sort((a, b) => {
-                            // Ordenar por data
+                .get()
+                .then(snapshot => {
+                    console.log('✅ Query executada com sucesso!');
+                    console.log('📊 Número de documentos encontrados:', snapshot.size);
+                    
+                    if (snapshot.empty) {
+                        console.log('📭 Nenhum agendamento encontrado');
+                        document.getElementById('agendamentos-list').innerHTML = '<div class="loading">📭 Nenhum agendamento encontrado.</div>';
+                        allAppointments = [];
+                        return;
+                    }
+
+                    allAppointments = [];
+                    snapshot.forEach(doc => {
+                        const data = doc.data();
+                        console.log('📄 Documento:', doc.id, data);
+                        allAppointments.push({
+                            id: doc.id,
+                            ...data
+                        });
+                    });
+
+                    allAppointments.sort((a, b) => {
+                        if (a.data !== b.data) {
+                            return a.data.localeCompare(b.data);
+                        }
+                        return a.hora.localeCompare(b.hora);
+                    });
+
+                    console.log('✅ Total de agendamentos processados:', allAppointments.length);
+                    renderAgendamentos(allAppointments);
+                    setupRealtimeListener();
+                })
+                .catch(error => {
+                    console.error('❌ Erro na query:', error);
+                    console.error('Código do erro:', error.code);
+                    console.error('Mensagem:', error.message);
+                    document.getElementById('agendamentos-list').innerHTML = `
+                        <div class="message error">
+                            ❌ Erro ao carregar agendamentos:<br>
+                            <strong>${error.code || 'Desconhecido'}</strong>: ${error.message}<br><br>
+                            <button class="btn btn-small" onclick="loadAgendamentos()">🔄 Tentar Novamente</button>
+                        </div>
+                    `;
+                });
+        }
+
+        // Configurar listener em tempo real
+        function setupRealtimeListener() {
+            if (unsubscribeListener) {
+                unsubscribeListener();
+            }
+
+            console.log('🔄 Configurando listener em tempo real...');
+            
+            unsubscribeListener = db.collection('agendamentos')
+                .where('status', '==', 'agendado')
+                .onSnapshot(
+                    snapshot => {
+                        console.log('🔔 Atualização em tempo real recebida');
+                        
+                        allAppointments = [];
+                        snapshot.forEach(doc => {
+                            allAppointments.push({
+                                id: doc.id,
+                                ...doc.data()
+                            });
+                        });
+
+                        allAppointments.sort((a, b) => {
                             if (a.data !== b.data) {
                                 return a.data.localeCompare(b.data);
                             }
-                            // Se a data for igual, ordenar por hora
                             return a.hora.localeCompare(b.hora);
                         });
-                    renderAgendamentos(allAppointments);
-                }, error => {
-                    console.error("Erro ao carregar:", error);
-                    document.getElementById('agendamentos-list').innerHTML = '<div class="message error">Erro ao carregar agendamentos. Verifique sua conexão.</div>';
-                });
+
+                        renderAgendamentos(allAppointments);
+                    },
+                    error => {
+                        console.error('❌ Erro no listener:', error);
+                    }
+                );
         }
 
         // Renderizar agendamentos
         function renderAgendamentos(agendamentos) {
+            console.log('=== 🎨 Renderizando agendamentos ===');
+            console.log('Quantidade:', agendamentos.length);
+            
             const listDiv = document.getElementById('agendamentos-list');
+            
+            if (!listDiv) {
+                console.error('❌ Elemento agendamentos-list não encontrado!');
+                return;
+            }
+
             listDiv.innerHTML = '';
 
             if (agendamentos.length === 0) {
-                listDiv.innerHTML = '<div class="loading">Nenhum agendamento encontrado.</div>';
+                listDiv.innerHTML = '<div class="loading">📭 Nenhum agendamento encontrado.</div>';
                 return;
             }
 
             const agendamentosPorDia = {};
             agendamentos.forEach(ag => {
+                if (!ag.data) {
+                    console.warn('⚠️ Agendamento sem data:', ag);
+                    return;
+                }
                 if (!agendamentosPorDia[ag.data]) {
                     agendamentosPorDia[ag.data] = [];
                 }
@@ -927,10 +1023,11 @@
             });
 
             const datasOrdenadas = Object.keys(agendamentosPorDia).sort();
+            console.log('📅 Datas encontradas:', datasOrdenadas);
 
             datasOrdenadas.forEach(data => {
                 const agendamentosDoDia = agendamentosPorDia[data];
-                agendamentosDoDia.sort((a, b) => a.hora.localeCompare(b.hora));
+                agendamentosDoDia.sort((a, b) => (a.hora || '').localeCompare(b.hora || ''));
 
                 const diaContainer = document.createElement('div');
                 diaContainer.classList.add('appointments-day');
@@ -945,13 +1042,13 @@
                     htmlDia += `
                         <div class="appointment-card">
                             <div class="appointment-header">
-                                <span class="client-name">${ag.cliente}</span>
-                                <span class="appointment-time">🕐 ${ag.hora}</span>
+                                <span class="client-name">${ag.cliente || 'Sem nome'}</span>
+                                <span class="appointment-time">🕐 ${ag.hora || 'Sem horário'}</span>
                             </div>
                             <div class="appointment-info">
-                                <div class="info-item">📞 <strong>Telefone:</strong> ${ag.telefone}</div>
-                                <div class="info-item">👨‍💼 <strong>Atendente:</strong> ${ag.funcionario}</div>
-                                <div class="info-item">💼 <strong>Serviço:</strong> ${ag.servico}</div>
+                                <div class="info-item">📞 <strong>Telefone:</strong> ${ag.telefone || 'Não informado'}</div>
+                                <div class="info-item">👨‍💼 <strong>Atendente:</strong> ${ag.funcionario || 'Não informado'}</div>
+                                <div class="info-item">💼 <strong>Serviço:</strong> ${ag.servico || 'Não informado'}</div>
                             </div>
                             ${ag.observacoes ? `<div class="info-item" style="margin-top: 10px;">📝 <strong>Obs:</strong> ${ag.observacoes}</div>` : ''}
                             <div class="appointment-actions">
@@ -965,6 +1062,8 @@
                 diaContainer.innerHTML = htmlDia;
                 listDiv.appendChild(diaContainer);
             });
+
+            console.log('✅ Renderização concluída');
         }
 
         // Filtrar agendamentos
@@ -992,9 +1091,8 @@
                     status: 'cancelado' 
                 });
                 showMessage('✅ Agendamento cancelado com sucesso!', 'success');
-                loadAgendamentos();
             } catch (error) {
-                console.error("Erro ao cancelar:", error);
+                console.error("❌ Erro ao cancelar:", error);
                 alert('Erro ao cancelar agendamento.');
             }
         }
@@ -1020,7 +1118,7 @@
                 selectedTime = ag.hora;
                 generateEditDaySelector();
             } catch (error) {
-                console.error("Erro ao carregar agendamento:", error);
+                console.error("❌ Erro ao carregar agendamento:", error);
                 showMessage('Erro ao carregar dados do agendamento', 'error', 'edit-message-area');
             }
         }
@@ -1148,7 +1246,7 @@
                     timeSlotsDiv.appendChild(slotElement);
                 }
             } catch (error) {
-                console.error("Erro ao carregar horários:", error);
+                console.error("❌ Erro ao carregar horários:", error);
                 timeSlotsDiv.innerHTML = '<div class="message error">Erro ao carregar horários</div>';
             }
         }
@@ -1170,17 +1268,16 @@
                 showMessage('✅ Agendamento alterado com sucesso!', 'success', 'edit-message-area');
                 setTimeout(() => {
                     closeEditModal();
-                    loadAgendamentos();
                 }, 1500);
             } catch (error) {
-                console.error("Erro ao salvar:", error);
+                console.error("❌ Erro ao salvar:", error);
                 showMessage(`❌ Erro ao salvar: ${error.message}`, 'error', 'edit-message-area');
             }
         }
 
-        // Inicializar ao carregar - CORRIGIDO: Ordem de inicialização
+        // Inicializar ao carregar
         document.addEventListener('DOMContentLoaded', () => {
-            console.log('Iniciando aplicação...');
+            console.log('🚀 Iniciando aplicação...');
             initFirebase();
             showTab('novo');
         });
